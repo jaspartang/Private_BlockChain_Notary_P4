@@ -69,6 +69,19 @@ app.get('/', (req, res) => res.status(404).json([
 
 ]))
 
+
+// **************************************************************
+// decode the Block's story field and then append to 
+// storyDecoded feild
+// **************************************************************
+function story_2_storyDecoded(block) {
+  if ('star' in block && 'story' in block.star) {
+    const buf = Buffer.from(block.star.story, 'hex');
+    block.star.storyDecoded = buf.toString('ascii');
+  }
+  return block;
+}
+
 // **************************************************************
 // Get Block
 //
@@ -86,7 +99,7 @@ async function get_block(req, res) {
       })
     } else {
       const response = await blockchain.getBlock(req.params.height)
-      res.send(response)
+      res.send(story_2_storyDecoded(response))
     }
   } catch (error) {
     res.status(404).json({
@@ -113,7 +126,7 @@ async function get_block_by_address(req, res) {
     .then((block) => {
       console.log(block);
       if (block.address === address) {
-        retval.push(block);
+        retval.push(story_2_storyDecoded(block));
       }
     })
     .catch((err) => {
@@ -146,7 +159,7 @@ async function get_block_by_hash(req, res) {
     .then((block) => {
       console.log(block);
       if (block.hash === hash) {
-        res.status(200).send(block);
+        res.status(200).send(story_2_storyDecoded(block));
         done = true;
         return;
       }
@@ -167,6 +180,14 @@ async function get_block_by_hash(req, res) {
   }
 }
 
+// *************************************************************
+// Check if value is ASCII text
+//
+// see https://stackoverflow.com/questions/14313183/javascript-regex-how-do-i-check-if-the-string-is-ascii-only
+// *************************************************************
+function isASCII(str) {
+  return /^[\x00-\x7F]*$/.test(str);
+}
 
 // *************************************************************
 // Save a block to the end of the chain.
@@ -205,6 +226,28 @@ async function post_block(req, res) {
   if (!'dec'  in block.star) {
     res.status(400).send('dec is missing in star');
   }
+
+  //handle the review comments, need to encode the story field(required)
+  if (!'story' in block.star || !block.star.story) {
+    res.status(400).send('story is missing in star');
+  }
+  let story = '';
+  if ('story' in block.star) {
+    story = block.star.story;
+  }
+  if (!isASCII(story)) {
+    res.status(400).send('story must be ASCII text');
+    return;
+  }
+  if (story.length > 500) {
+    res.status(400).send('story must be less than 500 characers.');
+    return;
+  }
+  let buf = Buffer.from(story, 'ascii');
+  let story_encoded = buf.toString('hex');
+  block.star.story = story_encoded;
+  
+  // handle the post star register
   let pendingRequest = pendingReq[block.address];
   if (pendingRequest == undefined) {
     res.status(401).send('No pending request for address ' + block.address);
@@ -241,8 +284,20 @@ async function post_block(req, res) {
 // *************************************************************
 async function request_validation(req, res) {
   let validationData = req.body;
-  validationData.requestTimestamp = new Date().getTime().toString().slice(0,-3);
+  let timestamp = new Date().getTime().toString().slice(0,-3);
+  if (validationData.address in pendingReq) {
+      if (timestamp <  parseInt(validationData.requestTimestamp) + 300) {
+        validationData.validationWindow = 300 + parseInt(validationData.requestTimestamp) - timestamp
+        res.send(validationData);
+        return;
+      }
+  } else if (validationData.address === undefined || validationData.address === "") {
+    res.status(401).send("Wallet address is undefined");
+    return;
+  }
+
   validationData.validationWindow = 300;
+  validationData.requestTimestamp = timestamp;
   validationData.message = validationData.address + ':'
     + validationData.requestTimestamp + ':starRegistry';
   validationData.validated = false;
@@ -277,7 +332,7 @@ async function mesage_sig_validate(req, res) {
       retval.registerStar = true;
       retval.status = signatureData;
       let currentTime = new Date().getTime().toString().slice(0,-3);
-      if ((currentTime - pendingRequest.requestTimestamp)
+      if ((currentTime - 300)
           > pendingRequest.requestTimestamp) {
             res.status(401).send('Time window expired');
       }
