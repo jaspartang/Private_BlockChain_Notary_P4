@@ -216,20 +216,25 @@ async function post_block(req, res) {
   let block = req.body;
   if (!'address'  in block) {
     res.status(400).send('address is a required field');
+    return;
   }
   if (!'star'  in block) {
     res.status(400).send('star is a required field');
+    return;
   }
   if (!'ra'  in block.star) {
-    res.status(400).send('ra is missing in star');
+    res.status(400).send('ra isa required field missing in star');
+    return;
   }
   if (!'dec'  in block.star) {
-    res.status(400).send('dec is missing in star');
+    res.status(400).send('dec is a required field missing in star');
+    return;
   }
 
   //handle the review comments, need to encode the story field(required)
   if (!'story' in block.star || !block.star.story) {
     res.status(400).send('story is missing in star');
+    return;
   }
   let story = '';
   if ('story' in block.star) {
@@ -251,9 +256,11 @@ async function post_block(req, res) {
   let pendingRequest = pendingReq[block.address];
   if (pendingRequest == undefined) {
     res.status(401).send('No pending request for address ' + block.address);
+    return;
   }
   if (pendingRequest.validated != true) {
     res.status(401).send('Request not yet validated by signed response from client');
+    return;
   }
   let now = parseInt(new Date().getTime().toString().slice(0,-3))
   if (now > parseInt(pendingRequest.requestTimestamp) + parseInt(pendingRequest.validationWindow)) {
@@ -285,12 +292,14 @@ async function post_block(req, res) {
 async function request_validation(req, res) {
   let validationData = req.body;
   let timestamp = new Date().getTime().toString().slice(0,-3);
+  console.log(timestamp, validationData,validationData.requestTimestamp)
   if (validationData.address in pendingReq) {
-      if (timestamp <  parseInt(validationData.requestTimestamp) + 300) {
-        validationData.validationWindow = 300 + parseInt(validationData.requestTimestamp) - timestamp
-        res.send(validationData);
-        return;
-      }
+    let pending_validationData = pendingReq[validationData.address];
+    if (timestamp <  parseInt(pending_validationData.requestTimestamp) + 300) {
+      pending_validationData.validationWindow = 300 + parseInt(pending_validationData.requestTimestamp) - timestamp
+      res.send(pending_validationData);
+      return;
+    }
   } else if (validationData.address === undefined || validationData.address === "") {
     res.status(401).send("Wallet address is undefined");
     return;
